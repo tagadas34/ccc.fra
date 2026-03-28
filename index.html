@@ -1,18 +1,91 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Excel Dashboard</title>
+  <title>Norms Overview</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    .container { max-width: 900px; margin: auto; }
+    canvas { margin-top: 40px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+  </style>
 </head>
 <body>
-<h1>Excel Data</h1>
-<pre id="output"></pre>
+<div class="container">
+  <h1>Norms Overview (Custom Data)</h1>
+
+  <input type="file" id="fileInput" />
+
+  <table id="dataTable"></table>
+
+  <canvas id="chart"></canvas>
+</div>
+
 <script>
-fetch('data/data.json')
-.then(res => res.json())
-.then(data => {
-  document.getElementById('output').textContent = JSON.stringify(data, null, 2);
-});
+const fileInput = document.getElementById('fileInput');
+const table = document.getElementById('dataTable');
+const ctx = document.getElementById('chart');
+let chart;
+
+fileInput.addEventListener('change', handleFile);
+
+function handleFile(e) {
+  const file = e.target.files[0];
+  const reader = new FileReader();
+
+  reader.onload = function(event) {
+    const data = new Uint8Array(event.target.result);
+    const workbook = XLSX.read(data, { type: 'array' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(sheet);
+
+    renderTable(json);
+    renderChart(json);
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function renderTable(data) {
+  table.innerHTML = '';
+  if (data.length === 0) return;
+
+  const headers = Object.keys(data[0]);
+
+  let headerRow = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  table.innerHTML += headerRow;
+
+  data.forEach(row => {
+    let rowHTML = '<tr>' + headers.map(h => `<td>${row[h]}</td>`).join('') + '</tr>';
+    table.innerHTML += rowHTML;
+  });
+}
+
+function renderChart(data) {
+  const keys = Object.keys(data[0]);
+  const labelKey = keys[0];
+  const valueKey = keys[1];
+
+  const labels = data.map(d => d[labelKey]);
+  const values = data.map(d => d[valueKey]);
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: valueKey,
+        data: values
+      }]
+    }
+  });
+}
 </script>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </body>
 </html>
