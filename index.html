@@ -1,91 +1,166 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <title>Norms Overview</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Norms Dashboard (Clone complet)</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <style>
-    body { font-family: Arial; margin: 20px; }
-    .container { max-width: 900px; margin: auto; }
-    canvas { margin-top: 40px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    body { font-family: Inter, Arial, sans-serif; margin: 0; background:#f5f7fb; }
+    .container { max-width: 1200px; margin: auto; padding: 20px; }
+    h1 { margin-bottom: 10px; }
+    .controls { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom:20px; }
+    select { padding:8px; border-radius:8px; border:1px solid #ccc; }
+    .card { background:white; padding:20px; border-radius:16px; box-shadow:0 5px 15px rgba(0,0,0,0.05); margin-bottom:20px; }
+    canvas { width:100% !important; height:400px !important; }
+    .stats { display:flex; gap:20px; margin-top:10px; }
+    .stat { background:#eef2ff; padding:10px 15px; border-radius:10px; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Norms Overview (Custom Data)</h1>
+  <h1>📊 Norms Overview (Clone complet)</h1>
 
-  <input type="file" id="fileInput" />
+  <div class="controls">
+    <select id="metric"></select>
+    <select id="player"></select>
+    <select id="clan"></select>
+    <select id="date"></select>
+  </div>
 
-  <table id="dataTable"></table>
+  <div class="card">
+    <h3>Distribution</h3>
+    <canvas id="histogram"></canvas>
+    <div class="stats">
+      <div class="stat" id="mean"></div>
+      <div class="stat" id="median"></div>
+      <div class="stat" id="percentile"></div>
+    </div>
+  </div>
 
-  <canvas id="chart"></canvas>
+  <div class="card">
+    <h3>Comparaison joueur</h3>
+    <canvas id="playerChart"></canvas>
+  </div>
 </div>
 
 <script>
-const fileInput = document.getElementById('fileInput');
-const table = document.getElementById('dataTable');
-const ctx = document.getElementById('chart');
-let chart;
+let data = [];
+let histChart, playerChart;
 
-fileInput.addEventListener('change', handleFile);
+const metrics = ["SCORE","CHEST","BOIS","FER","PIERRE","NOURRITURE","ARGENT"];
 
-function handleFile(e) {
-  const file = e.target.files[0];
-  const reader = new FileReader();
-
-  reader.onload = function(event) {
-    const data = new Uint8Array(event.target.result);
-    const workbook = XLSX.read(data, { type: 'array' });
+fetch('Data_Fra.xlsx')
+  .then(res => res.arrayBuffer())
+  .then(buffer => {
+    const workbook = XLSX.read(buffer, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(sheet);
+    data = XLSX.utils.sheet_to_json(sheet);
 
-    renderTable(json);
-    renderChart(json);
-  };
+    initFilters();
+    update();
+  });
 
-  reader.readAsArrayBuffer(file);
+function initFilters() {
+  const metricSelect = document.getElementById('metric');
+  metrics.forEach(m => metricSelect.innerHTML += `<option>${m}</option>`);
+
+  const players = [...new Set(data.map(d => d.PLAYER))];
+  const clans = [...new Set(data.map(d => d.CLAN))];
+  const dates = [...new Set(data.map(d => d.DATE))];
+
+  fillSelect('player', players);
+  fillSelect('clan', clans);
+  fillSelect('date', dates);
+
+  document.querySelectorAll('select').forEach(s => s.addEventListener('change', update));
 }
 
-function renderTable(data) {
-  table.innerHTML = '';
-  if (data.length === 0) return;
+function fillSelect(id, values) {
+  const el = document.getElementById(id);
+  el.innerHTML = '<option value="">ALL</option>' + values.map(v => `<option>${v}</option>`).join('');
+}
 
-  const headers = Object.keys(data[0]);
+function filterData() {
+  const player = document.getElementById('player').value;
+  const clan = document.getElementById('clan').value;
+  const date = document.getElementById('date').value;
 
-  let headerRow = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
-  table.innerHTML += headerRow;
+  return data.filter(d =>
+    (!player || d.PLAYER == player) &&
+    (!clan || d.CLAN == clan) &&
+    (!date || d.DATE == date)
+  );
+}
 
-  data.forEach(row => {
-    let rowHTML = '<tr>' + headers.map(h => `<td>${row[h]}</td>`).join('') + '</tr>';
-    table.innerHTML += rowHTML;
+function update() {
+  const metric = document.getElementById('metric').value;
+  const filtered = filterData();
+
+  const values = filtered.map(d => +d[metric]).filter(v => !isNaN(v));
+
+  if(values.length === 0) return;
+
+  const mean = values.reduce((a,b)=>a+b,0)/values.length;
+  const sorted = [...values].sort((a,b)=>a-b);
+  const median = sorted[Math.floor(sorted.length/2)];
+
+  document.getElementById('mean').innerText = `Mean: ${mean.toFixed(2)}`;
+  document.getElementById('median').innerText = `Median: ${median}`;
+
+  drawHistogram(values);
+  drawPlayerComparison(metric, sorted);
+}
+
+function drawHistogram(values) {
+  const bins = 20;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const step = (max-min)/bins;
+
+  let counts = new Array(bins).fill(0);
+
+  values.forEach(v => {
+    let i = Math.min(Math.floor((v-min)/step), bins-1);
+    counts[i]++;
+  });
+
+  const labels = counts.map((_,i)=> (min + i*step).toFixed(0));
+
+  if(histChart) histChart.destroy();
+
+  histChart = new Chart(document.getElementById('histogram'), {
+    type:'bar',
+    data:{ labels, datasets:[{ data:counts }] }
   });
 }
 
-function renderChart(data) {
-  const keys = Object.keys(data[0]);
-  const labelKey = keys[0];
-  const valueKey = keys[1];
+function drawPlayerComparison(metric, sorted) {
+  const player = document.getElementById('player').value;
+  if(!player) return;
 
-  const labels = data.map(d => d[labelKey]);
-  const values = data.map(d => d[valueKey]);
+  const playerData = data.find(d => d.PLAYER == player);
+  if(!playerData) return;
 
-  if (chart) chart.destroy();
+  const value = +playerData[metric];
 
-  chart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: valueKey,
-        data: values
+  const percentile = sorted.findIndex(v => v >= value)/sorted.length*100;
+
+  document.getElementById('percentile').innerText = `Percentile: ${percentile.toFixed(1)}%`;
+
+  if(playerChart) playerChart.destroy();
+
+  playerChart = new Chart(document.getElementById('playerChart'), {
+    type:'bar',
+    data:{
+      labels:['Player','Average'],
+      datasets:[{
+        data:[value, sorted.reduce((a,b)=>a+b,0)/sorted.length]
       }]
     }
   });
 }
 </script>
-
-<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </body>
 </html>
